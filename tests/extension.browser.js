@@ -15,7 +15,7 @@ window.submissions = 0;
 document.querySelector('form').addEventListener('submit', event => {event.preventDefault(); window.submissions++;});
 </script></body></html>`;
 
-async function start(profile) {
+async function start(profile, fixtureHtml = html) {
   const extension = path.resolve("extension");
   const context = await chromium.launchPersistentContext(profile, {
     channel: "chromium",
@@ -40,7 +40,7 @@ async function start(profile) {
       return route.continue();
     }
     if (new URL(route.request().url()).origin === origin) {
-      return route.fulfill({ contentType: "text/html", body: html });
+      return route.fulfill({ contentType: "text/html", body: fixtureHtml });
     }
     return route.abort();
   });
@@ -57,7 +57,7 @@ async function start(profile) {
     });
     const target = targetInfos.find((info) => info.url === page.url());
     assert.ok(target, "The journal tab must have a DevTools tab target");
-    // Grant activeTab through the real action, then inspect the popup as a tab.
+    // Exercise the real toolbar action, then inspect the popup as a tab.
     await cdp.send("Extensions.triggerAction", {
       id: extensionId,
       targetId: target.targetId,
@@ -195,6 +195,9 @@ test(
       .getByRole("button", { name: "Fill saved login", exact: true })
       .click();
     await statusContains(panel, "journal changed");
+    await app.page.waitForFunction(
+      () => document.querySelector('[name="PASSWORD"]').value === "",
+    );
     assert.equal(await app.page.locator('[name="PASSWORD"]').inputValue(), "");
     await panel.close();
 
@@ -218,6 +221,252 @@ test(
     await mkdir("test-results", { recursive: true });
     await panel.setViewportSize({ width: 360, height: 640 });
     await panel.screenshot({ path: "test-results/popup.png", fullPage: true });
+  },
+);
+
+async function waitForLogin(page, password) {
+  await page.waitForFunction(
+    (expected) =>
+      document.querySelector('[name="USERID"]')?.value ===
+        "author@example.test" &&
+      document.querySelector('[name="PASSWORD"]')?.value === expected,
+    password,
+  );
+}
+
+async function seed(app, journal, password = "saved-password") {
+  await app.worker.evaluate(
+    ({ journal, password, origin }) =>
+      chrome.storage.local.set({
+        [`journal:${origin}/${journal}`]: {
+          version: 1,
+          username: "author@example.test",
+          password,
+          revision: crypto.randomUUID(),
+          updatedAt: new Date().toISOString(),
+        },
+      }),
+    { journal, password, origin },
+  );
+}
+
+test(
+  "inline first visit, dismissal, return autofill, explicit updates and restart",
+  { timeout: 90000 },
+  async (t) => {
+    const profile = await mkdtemp(
+      path.join(tmpdir(), "journal-helper-inline-"),
+    );
+    let app;
+    t.after(async () => {
+      await app?.context.close();
+      await rm(profile, { recursive: true, force: true });
+    });
+    app = await start(profile);
+    await app.page.goto(`${origin}/jepop`);
+    await app.page.locator('[name="USERID"]').fill("author@example.test");
+    await app.page.locator('[name="PASSWORD"]').fill("alpha");
+    await app.page
+      .getByRole("button", { name: "Remember login", exact: true })
+      .waitFor();
+    await app.page
+      .getByRole("button", { name: "Remember login", exact: true })
+      .evaluate((button) => button.click());
+    assert.deepEqual(
+      await app.worker.evaluate(() => chrome.storage.local.get(null)),
+      {},
+    );
+    await app.page
+      .getByRole("button", { name: "Not now", exact: true })
+      .click();
+    assert.deepEqual(
+      await app.worker.evaluate(() => chrome.storage.local.get(null)),
+      {},
+    );
+    await app.page.reload();
+    assert.equal(await app.page.locator('[name="PASSWORD"]').inputValue(), "");
+
+    for (const [journal, password] of [
+      ["jepop", "alpha"],
+      ["other-journal", "beta"],
+    ]) {
+      await app.page.goto(`${origin}/${journal}`);
+      await app.page.locator('[name="USERID"]').fill("author@example.test");
+      await app.page.locator('[name="PASSWORD"]').fill(password);
+      await app.page
+        .getByRole("button", { name: "Remember login", exact: true })
+        .click();
+      await app.page
+        .getByText(
+          `Saved for ${journal.toUpperCase()}. Your login will fill automatically next time.`,
+          { exact: true },
+        )
+        .waitFor();
+    }
+
+    await app.page.goto(`${origin}/jepop?session=new`);
+    await waitForLogin(app.page, "alpha");
+    assert.equal(await app.page.evaluate(() => window.submissions), 0);
+    await app.page.locator('[name="PASSWORD"]').fill("alpha-new");
+    await app.page
+      .getByRole("button", { name: "Update saved login", exact: true })
+      .waitFor();
+    assert.equal(
+      (await app.worker.evaluate(() => chrome.storage.local.get(null)))[
+        `journal:${origin}/jepop`
+      ].password,
+      "alpha",
+    );
+    await app.page
+      .getByRole("button", { name: "Update saved login", exact: true })
+      .click();
+    await app.page
+      .getByText(
+        "Saved for JEPOP. Your login will fill automatically next time.",
+        { exact: true },
+      )
+      .waitFor();
+    const records = await app.worker.evaluate(() =>
+      chrome.storage.local.get(null),
+    );
+    assert.equal(records[`journal:${origin}/jepop`].password, "alpha-new");
+    assert.equal(records[`journal:${origin}/other-journal`].password, "beta");
+
+    await app.context.close();
+    app = await start(profile);
+    await app.page.goto(`${origin}/jepop/login`);
+    await waitForLogin(app.page, "alpha-new");
+    assert.equal(await app.page.evaluate(() => window.submissions), 0);
+    await mkdir("test-results", { recursive: true });
+    await app.page.screenshot({ path: "test-results/inline-autofilled.png" });
+    await app.page.goto(`${origin}/jepop2`);
+    await app.page
+      .getByRole("heading", { name: "Journal login", exact: true })
+      .waitFor();
+    assert.equal(await app.page.locator('[name="PASSWORD"]').inputValue(), "");
+  },
+);
+
+test(
+  "autofill handles delayed forms and leaves typed or prefilled credentials alone",
+  { timeout: 60000 },
+  async (t) => {
+    const empty =
+      "<!doctype html><html><body><h1>Loading journal</h1></body></html>";
+    const app = await start("", empty);
+    t.after(() => app.context.close());
+    await seed(app, "jepop");
+    await app.page.goto(`${origin}/jepop`);
+    await app.page.evaluate(() => {
+      document.body.insertAdjacentHTML(
+        "beforeend",
+        '<form><input name="USERID"><input name="PASSWORD" type="password"><button>Sign in</button></form>',
+      );
+    });
+    await waitForLogin(app.page, "saved-password");
+    await app.page.locator('[name="PASSWORD"]').fill("editing-password");
+    await app.page
+      .getByRole("button", { name: "Update saved login", exact: true })
+      .waitFor();
+    await app.page.evaluate(() => document.body.classList.add("changed"));
+    assert.equal(
+      await app.page.locator('[name="PASSWORD"]').inputValue(),
+      "editing-password",
+    );
+
+    await app.page.reload();
+    await app.page.evaluate(() => {
+      document.body.insertAdjacentHTML(
+        "beforeend",
+        '<form><input name="USERID" value="wrong-account"><input name="PASSWORD" type="password" value="wrong-password"><button>Sign in</button></form>',
+      );
+    });
+    await app.page
+      .getByRole("button", { name: "Use saved login", exact: true })
+      .waitFor();
+    assert.equal(
+      await app.page.locator('[name="PASSWORD"]').inputValue(),
+      "wrong-password",
+    );
+    await app.page
+      .getByRole("button", { name: "Use saved login", exact: true })
+      .click();
+    await waitForLogin(app.page, "saved-password");
+
+    await app.page.evaluate(() => history.pushState({}, "", "/other-journal"));
+    await app.page.waitForFunction(
+      () => document.querySelector('[name="PASSWORD"]').value === "",
+    );
+    assert.equal(await app.page.locator('[name="USERID"]').inputValue(), "");
+  },
+);
+
+test(
+  "password-change forms offer explicit updates and never receive automatic fills",
+  { timeout: 45000 },
+  async (t) => {
+    const changeHtml = `<!doctype html><html><body><form>
+    <input aria-label="Current password" type="password" autocomplete="current-password">
+    <input aria-label="New password" type="password" autocomplete="new-password">
+    <input aria-label="Confirm password" type="password" autocomplete="new-password">
+    <button type="button">Change password</button></form></body></html>`;
+    const app = await start("", changeHtml);
+    t.after(() => app.context.close());
+    await seed(app, "jepop");
+    await seed(app, "other-journal", "other-password");
+    await app.page.goto(`${origin}/jepop/change-password`);
+    assert.equal(
+      await app.page
+        .getByLabel("Current password", { exact: true })
+        .inputValue(),
+      "",
+    );
+    await app.page
+      .getByLabel("Current password", { exact: true })
+      .fill("saved-password");
+    await app.page
+      .getByLabel("New password", { exact: true })
+      .fill("new-password");
+    await app.page
+      .getByLabel("Confirm password", { exact: true })
+      .fill("mismatch");
+    assert.equal(
+      await app.page
+        .getByRole("button", { name: "Update saved login", exact: true })
+        .count(),
+      0,
+    );
+    await app.page
+      .getByLabel("Confirm password", { exact: true })
+      .fill("new-password");
+    await app.page
+      .getByRole("button", { name: "Update saved login", exact: true })
+      .waitFor();
+    assert.equal(
+      (await app.worker.evaluate(() => chrome.storage.local.get(null)))[
+        `journal:${origin}/jepop`
+      ].password,
+      "saved-password",
+    );
+    await mkdir("test-results", { recursive: true });
+    await app.page.screenshot({ path: "test-results/inline-update.png" });
+    await app.page
+      .getByRole("button", { name: "Update saved login", exact: true })
+      .click();
+    await app.page
+      .getByText(
+        "Saved for JEPOP. Your login will fill automatically next time.",
+        { exact: true },
+      )
+      .waitFor();
+    const records = await app.worker.evaluate(() =>
+      chrome.storage.local.get(null),
+    );
+    assert.equal(records[`journal:${origin}/jepop`].password, "new-password");
+    assert.equal(
+      records[`journal:${origin}/other-journal`].password,
+      "other-password",
+    );
   },
 );
 

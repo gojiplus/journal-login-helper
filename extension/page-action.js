@@ -7,7 +7,8 @@ export function pageAction(action, expected, credentials = null) {
   if (!matches())
     return { error: "The journal changed. Close and reopen the helper." };
   if (action === "check") return { ok: true };
-  if (!["read", "fill"].includes(action)) return { error: "Unknown action." };
+  if (!["read", "fill", "fields", "change"].includes(action))
+    return { error: "Unknown action." };
 
   const visible = (input) => {
     const style = getComputedStyle(input);
@@ -23,6 +24,41 @@ export function pageAction(action, expected, credentials = null) {
   const passwords = [...document.querySelectorAll("input")].filter(
     (input) => input.type === "password" && visible(input),
   );
+  if (action === "change") {
+    const newFields = passwords.filter((input) =>
+      input.autocomplete.split(/\s+/).includes("new-password"),
+    );
+    const form = newFields[0]?.form;
+    if (
+      !form ||
+      !newFields.length ||
+      passwords.some((input) => input.form !== form)
+    ) {
+      return { error: "No unambiguous password-change form found." };
+    }
+    const confirmationFields = passwords.filter(
+      (input) => !input.autocomplete.split(/\s+/).includes("current-password"),
+    );
+    const value = newFields[0].value;
+    if (!value || confirmationFields.some((input) => input.value !== value)) {
+      return { error: "Complete the matching new-password fields first." };
+    }
+    const usernames = [...document.querySelectorAll("input")].filter(
+      (input) =>
+        input.form === form &&
+        visible(input) &&
+        ["text", "email", "tel"].includes(input.type) &&
+        (input.autocomplete.split(/\s+/).includes("username") ||
+          /user|email|login|e-mail/i.test(`${input.name} ${input.id}`)),
+    );
+    if (usernames.length > 1) return { error: "Ambiguous username." };
+    return {
+      password: value,
+      username: usernames[0]?.value || null,
+      anchor: newFields.at(-1),
+      form,
+    };
+  }
   if (
     passwords.length !== 1 ||
     passwords[0].autocomplete.split(/\s+/).includes("new-password")
@@ -55,6 +91,7 @@ export function pageAction(action, expected, credentials = null) {
     };
   }
   const username = users[0];
+  if (action === "fields") return { username, password, form: password.form };
   if (action === "read") {
     if (!username.value.trim() || !password.value) {
       return {

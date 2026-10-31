@@ -180,3 +180,50 @@ test("a site that overwrites the fill is reported", () => {
   });
   assert.match(f.action("fill").error, /page changed the login fields/);
 });
+
+test("inline inspection returns the same unambiguous fields without changing them", () => {
+  const f = fixture();
+  const fields = f.action("fields");
+  assert.equal(fields.username, f.username);
+  assert.equal(fields.password, f.password);
+  assert.equal(f.password.value, "");
+});
+
+test("password-change capture requires completed matching new passwords", () => {
+  const f = fixture();
+  f.username.value = "author@example.test";
+  f.password.autocomplete = "current-password";
+  f.password.value = "old";
+  const next = new f.Input({
+    type: "password",
+    autocomplete: "new-password",
+    storedValue: "new",
+  });
+  const confirmation = new f.Input({
+    type: "password",
+    autocomplete: "new-password",
+    storedValue: "different",
+  });
+  f.inputs.push(next, confirmation);
+  assert.match(f.action("change").error, /matching/);
+  confirmation.value = "new";
+  assert.equal(f.action("change").password, "new");
+  assert.equal(f.action("change").username, "author@example.test");
+  assert.match(f.action("fill").error, /password-change/);
+});
+
+test("password-change capture rejects unrelated forms and unidentified old passwords", () => {
+  const f = fixture();
+  f.password.value = "old";
+  f.inputs.push(
+    new f.Input({
+      type: "password",
+      autocomplete: "new-password",
+      storedValue: "new",
+    }),
+  );
+  assert.match(f.action("change").error, /matching/);
+  f.password.autocomplete = "current-password";
+  f.inputs.push(new f.Input({ type: "password", form: "another" }));
+  assert.match(f.action("change").error, /unambiguous/);
+});

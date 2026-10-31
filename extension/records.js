@@ -22,7 +22,7 @@ export async function writeRecord(storage, key, credentials, expectedRevision) {
   const current = await readRecord(storage, key);
   if ((current?.revision ?? null) !== expectedRevision) {
     throw new Error(
-      "This login changed in another window. Reopen the helper before saving.",
+      "This login changed in another window. Reload this page or reopen the helper before saving.",
     );
   }
   if (!credentials.username.trim() || !credentials.password) {

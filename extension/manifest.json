@@ -1,16 +1,31 @@
 {
   "manifest_version": 3,
   "name": "Journal Login Helper",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Remember and fill separate ScholarOne journal logins by journal path.",
   "minimum_chrome_version": "106",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["scripting", "storage"],
+  "host_permissions": ["https://mc.manuscriptcentral.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://mc.manuscriptcentral.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["inline.js", "scope.js", "page-action.js"],
+      "matches": ["https://mc.manuscriptcentral.com/*"]
+    }
+  ],
   "action": {
     "default_title": "Journal Login Helper",
     "default_popup": "popup.html"
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'none'; base-uri 'none'"
