@@ -1,0 +1,21 @@
+{
+  "name": "journal-login-helper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A local Chrome extension for separate ScholarOne journal logins.",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "test:browser": "node --test tests/*.browser.js",
+    "lint": "node --check extension/background.js && node --check extension/popup.js && node --check extension/page-action.js && node --check extension/scope.js && node --check extension/records.js && prettier --check .",
+    "format": "prettier --write .",
+    "check": "npm run lint && npm test && npm run test:browser"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1",
+    "prettier": "3.9.10"
+  }
+}

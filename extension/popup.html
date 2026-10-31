@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Journal Login Helper</title>
+    <link rel="stylesheet" href="popup.css" />
+    <script type="module" src="popup.js"></script>
+  </head>
+  <body>
+    <header>
+      <span class="eyebrow">JOURNAL LOGIN HELPER</span>
+      <h1 id="journal">Open a journal</h1>
+      <p id="scope">Checking this tab…</p>
+    </header>
+    <main>
+      <p id="status" role="status" aria-live="polite"></p>
+      <form id="login" autocomplete="off" hidden>
+        <fieldset id="controls">
+          <p id="saved-state" class="muted"></p>
+          <button id="fill" type="button" class="primary">
+            Fill saved login
+          </button>
+          <div class="divider"><span>Remember or update</span></div>
+          <button id="read" type="button">Read from page</button>
+          <p class="hint">Read the filled login fields, or enter them below.</p>
+          <label for="username">Username</label>
+          <input
+            id="username"
+            name="journal-username"
+            type="text"
+            required
+            spellcheck="false"
+            autocapitalize="none"
+          />
+          <label for="password">Password</label>
+          <div class="password-row">
+            <input
+              id="password"
+              name="journal-password"
+              type="password"
+              required
+              autocomplete="off"
+            />
+            <button
+              id="reveal"
+              type="button"
+              aria-label="Show password"
+              aria-pressed="false"
+            >
+              Show
+            </button>
+          </div>
+          <button id="save" type="submit">Save login</button>
+          <button id="forget" type="button" class="quiet" hidden>
+            Forget this journal
+          </button>
+        </fieldset>
+      </form>
+    </main>
+    <footer>
+      Stored only in this Chrome profile, without vault encryption or Google
+      sync. Removing the extension deletes its saved logins.
+    </footer>
+  </body>
+</html>
