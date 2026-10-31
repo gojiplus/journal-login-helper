@@ -62,7 +62,7 @@ npm run check
 
 `npm test` runs unit tests for journal identity, distinct same-username entries, updates, stale writes, deletion, form selection, and navigation during filling. `npm run lint` checks JavaScript syntax and Prettier formatting. `npm run test:browser` launches an isolated persistent Chromium profile with the actual extension and dummy journal pages; it exercises the toolbar action, save/fill/update, browser restart, deletion, and navigation. Browser tests never use your normal Chrome profile or real journal accounts.
 
-The browser tests use the Chrome DevTools Protocol’s experimental `Extensions.triggerAction` command to grant `activeTab` through the real action. They enable Playwright’s internal `PW_CHROMIUM_ATTACH_TO_OTHER` switch to inspect native toolbar popups; the Playwright version is pinned. Use Playwright’s bundled Chromium. To test with an already installed compatible Chromium, set `JOURNAL_HELPER_CHROMIUM` to its executable path. Tests fail if the browser cannot launch; they are not silently skipped.
+The browser tests use the Chrome DevTools Protocol’s experimental `Extensions.triggerAction` command to grant `activeTab` through the real action. They then inspect the same popup document in a background tab, which Playwright supports, while leaving the journal tab active. They do not add host permissions or mock Chrome’s APIs. Use Playwright’s bundled Chromium. To test with an already installed compatible Chromium, set `JOURNAL_HELPER_CHROMIUM` to its executable path. Tests fail if the browser cannot launch; they are not silently skipped.
 
 ```sh
 npm run format

@@ -5,9 +5,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
 
-// Chromium exposes toolbar popups as "other" targets, not ordinary tabs.
-process.env.PW_CHROMIUM_ATTACH_TO_OTHER = "1";
-
 const origin = "https://mc.manuscriptcentral.com";
 const html = `<!doctype html><html><head><title>Journal login fixture</title></head>
 <body><h1>Journal login</h1><form id="login"><label>Username<input name="USERID" autocomplete="username"></label>
@@ -51,12 +48,24 @@ async function start(profile) {
     });
     const target = targetInfos.find((info) => info.url === page.url());
     assert.ok(target, "The journal tab must have a DevTools tab target");
-    const opened = context.waitForEvent("page", { timeout: 10000 });
-    // Exercise the real toolbar action, including its activeTab permission grant.
+    // Grant activeTab through the real action, then inspect the popup as a tab.
     await cdp.send("Extensions.triggerAction", {
       id: extensionId,
       targetId: target.targetId,
     });
+    const popupUrl = `chrome-extension://${extensionId}/popup.html`;
+    const { targetInfos: popupTargets } = await cdp.send("Target.getTargets");
+    for (const popupTarget of popupTargets.filter(
+      (info) => info.url === popupUrl,
+    )) {
+      await cdp.send("Target.closeTarget", { targetId: popupTarget.targetId });
+    }
+    const opened = context.waitForEvent("page", { timeout: 10000 });
+    // Keeping the journal tab active preserves the popup's actual tab lookup.
+    await worker.evaluate(
+      (url) => chrome.tabs.create({ url, active: false }),
+      popupUrl,
+    );
     const panel = await opened;
     await panel.locator("#login:not([hidden]), #scope").first().waitFor();
     return panel;
@@ -174,7 +183,8 @@ test(
     panel = await app.popup();
     await panel.locator("#username").waitFor();
     await mkdir("test-results", { recursive: true });
-    await panel.screenshot({ path: "test-results/popup.png" });
+    await panel.setViewportSize({ width: 360, height: 640 });
+    await panel.screenshot({ path: "test-results/popup.png", fullPage: true });
   },
 );
 
