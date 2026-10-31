@@ -5,6 +5,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
 
+// Chromium exposes toolbar popups as "other" targets, not ordinary tabs.
+process.env.PW_CHROMIUM_ATTACH_TO_OTHER = "1";
+
 const origin = "https://mc.manuscriptcentral.com";
 const html = `<!doctype html><html><head><title>Journal login fixture</title></head>
 <body><h1>Journal login</h1><form id="login"><label>Username<input name="USERID" autocomplete="username"></label>
