@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
+import { journalScope } from "../extension/scope.js";
 
 const origin = "https://mc.manuscriptcentral.com";
 const html = `<!doctype html><html><head><title>Journal login fixture</title></head>
@@ -29,7 +30,15 @@ async function start(profile) {
     ],
   });
   context.setDefaultTimeout(10000);
+  context.on("page", (openedPage) => {
+    openedPage.on("pageerror", (error) =>
+      console.error("Browser test:", error.message),
+    );
+  });
   await context.route("**/*", (route) => {
+    if (new URL(route.request().url()).protocol === "chrome-extension:") {
+      return route.continue();
+    }
     if (new URL(route.request().url()).origin === origin) {
       return route.fulfill({ contentType: "text/html", body: html });
     }
@@ -68,6 +77,30 @@ async function start(profile) {
     );
     const panel = await opened;
     await panel.locator("#login:not([hidden]), #scope").first().waitFor();
+    try {
+      await panel.waitForFunction(
+        () =>
+          !document.getElementById("login").hidden ||
+          document.getElementById("status").textContent ||
+          document
+            .getElementById("scope")
+            .textContent.includes("journal-specific"),
+      );
+      if (journalScope(page.url())) {
+        assert.equal(
+          await panel.locator("#login").isVisible(),
+          true,
+          `Popup initialization: ${await panel.locator("#scope").textContent()} ${await panel.locator("#status").textContent()}`,
+        );
+      }
+    } catch (error) {
+      await mkdir("test-results", { recursive: true });
+      await panel.screenshot({
+        path: `test-results/popup-error-${Date.now()}.png`,
+        fullPage: true,
+      });
+      throw error;
+    }
     return panel;
   }
   return { context, page, popup, worker };
