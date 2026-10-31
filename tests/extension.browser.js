@@ -40,19 +40,19 @@ async function start(profile) {
     (await context.waitForEvent("serviceworker"));
   const extensionId = new URL(worker.url()).host;
   const page = await context.newPage();
-  const cdp = await context.newCDPSession(page);
-  const { targetInfo } = await cdp.send("Target.getTargetInfo");
+  const cdp = await context.browser().newBrowserCDPSession();
   async function popup() {
     await page.bringToFront();
-    const opened = context.waitForEvent("page", {
-      predicate: (p) =>
-        p.url().startsWith(`chrome-extension://${extensionId}/`),
-      timeout: 10000,
+    const { targetInfos } = await cdp.send("Target.getTargets", {
+      filter: [{ type: "tab" }, { exclude: true }],
     });
+    const target = targetInfos.find((info) => info.url === page.url());
+    assert.ok(target, "The journal tab must have a DevTools tab target");
+    const opened = context.waitForEvent("page", { timeout: 10000 });
     // Exercise the real toolbar action, including its activeTab permission grant.
     await cdp.send("Extensions.triggerAction", {
       id: extensionId,
-      targetId: targetInfo.targetId,
+      targetId: target.targetId,
     });
     const panel = await opened;
     await panel.locator("#login:not([hidden]), #scope").first().waitFor();

@@ -55,7 +55,7 @@ The extension requests `activeTab`, `scripting`, and `storage`. Clicking its too
 Use Node.js 22 or newer. The extension itself has no runtime dependencies or build step.
 
 ```sh
-npm install
+npm ci
 npx playwright install chromium
 npm run check
 ```
